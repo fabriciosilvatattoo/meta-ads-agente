@@ -35,21 +35,27 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    const systemPrompt = `Voce e um agente de marketing digital, especializado em Meta Ads (Facebook/Instagram).
+    const systemPrompt = `Voce e um assistente de Meta Ads. O usuario ja configurou o token e o ID da conta (${accountId}).
 
-REGRAS IMPORTANTES:
-1. Quando o usuario perguntar sobre campanhas, use a funcao getCampaigns.
-2. O usuario ja forneceu o token e o ID da conta.
-3. ID da conta atual: ${accountId}
-4. NAO peça token novamente se o usuario ja mencionar que esta conectado.
-5. Responda de forma direta e objetiva, sem frases desnecessarias.
-6. Se o usuario disser que ja colou o token, use imediatamente a funcao getCampaigns.
+INSTRUÇÕES CRUCIAIS:
+1. Se o usuario perguntar sobre campanhas, use IMEDIATAMENTE a funcao getCampaigns com o token que ja foi fornecido.
+2. NUNCA peça o token novamente. O usuario ja deixou claro que ja esta conectado.
+3. Se o usuario dizer "ja colou", "ja conectei", ou similar, USE A FUNCAO getCampaigns direto.
+4. NAO pergunte "pode me passar o token" ou coisas do tipo. O usuario ja configurou.
+5. Se precisar de dados que nao estao na resposta getCampaigns, entao SIM pode perguntar.
+6. Responda de forma direta e objetiva, sem frases desnecessarias.
 
-Se precisar de dados que nao estao na resposta getCampaigns, entao peça claramente.`;
+Exemplos:
+- Usuario: "Quais sao as campanhas?" -> Use getCampaigns
+- Usuario: "Quais sao as campanhas da Andreza?" -> Use getCampaigns
+- Usuario: "Ja colou o token" -> Use getCampaigns
+- Usuario: "Estou conectado" -> Use getCampaigns
+
+Caso o usuario PEÇA para mudar o token ou algo diferente, ai sim pode perguntar.`;
 
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.slice(-8),
+      ...history.slice(-6),
       { role: 'user', content: message }
     ];
 
@@ -57,13 +63,13 @@ Se precisar de dados que nao estao na resposta getCampaigns, entao peça clarame
       type: 'function',
       function: {
         name: 'getCampaigns',
-        description: 'Busca campanhas ativas da conta Meta Ads usando o ID da conta',
+        description: 'Busca campanhas ativas da conta Meta Ads usando o token ja configurado',
         parameters: {
           type: 'object',
           properties: {
             meta_token: {
               type: 'string',
-              description: 'Token de acesso da Meta Ads API'
+              description: 'Token de acesso da Meta Ads API (ja fornecido pelo usuario)'
             },
             account_id: {
               type: 'string',
@@ -80,14 +86,15 @@ Se precisar de dados que nao estao na resposta getCampaigns, entao peça clarame
       {
         model: 'glm-4.7',
         messages: messages,
-        tools: tools
+        tools: tools,
+        temperature: 0.3
       },
       {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${GLM_API_KEY}`
         },
-        timeout: 60000
+        timeout: 50000
       }
     );
 
@@ -110,20 +117,21 @@ Se precisar de dados que nao estao na resposta getCampaigns, entao peça clarame
               model: 'glm-4.7',
               messages: [
                 { role: 'system', content: systemPrompt },
-                ...messages.slice(-8),
+                ...messages.slice(-6),
                 {
                   role: 'tool',
                   content: JSON.stringify(campaignsResult),
                   tool_call_id: toolCall.id
                 }
-              ]
+              ],
+              temperature: 0.3
             },
             {
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${GLM_API_KEY}`
               },
-              timeout: 60000
+              timeout: 50000
             }
           );
 
