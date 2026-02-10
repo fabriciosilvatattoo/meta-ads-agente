@@ -1,0 +1,28 @@
+version: '3.3'
+
+services:
+  meta-ads-agente:
+    image: meta-ads-agente:latest
+    networks:
+      - InsnNet
+    environment:
+      - GLM_API_KEY=3426673eebda4070a78bf8bbbf53509d.m87S46cq1QO6P8Qj
+      - GLM_API_URL=https://api.z.ai/api/coding/paas/v4
+      - PORT=3001
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.meta-ads.rule=Host(`meta-ads.insn.online`)"
+        - "traefik.http.routers.meta-ads.entrypoints=websecure"
+        - "traefik.http.routers.meta-ads.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.meta-ads.loadbalancer.server.port=3001"
+    ports:
+      - target: 3001
+        published: 8890
+        mode: host
+
+networks:
+  InsnNet:
+    external: true
