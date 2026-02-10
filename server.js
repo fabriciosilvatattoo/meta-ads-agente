@@ -17,36 +17,60 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
 
+const getCampaignsCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000;
+
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, history = [], metaToken } = req.body;
+    const { message, history = [], metaToken, accountId = '921993772267921' } = req.body;
+
+    const now = Date.now();
+    const cacheKey = `${accountId}_campaigns`;
+    
+    let campaigns = [];
+    if (getCampaignsCache.has(cacheKey)) {
+      const cached = getCampaignsCache.get(cacheKey);
+      if (now - cached.timestamp < CACHE_TTL) {
+        campaigns = cached.data;
+      }
+    }
+
+    const systemPrompt = `Voce e um agente de marketing digital, especializado em Meta Ads (Facebook/Instagram).
+
+REGRAS IMPORTANTES:
+1. Quando o usuario perguntar sobre campanhas, use a funcao getCampaigns.
+2. O usuario ja forneceu o token e o ID da conta.
+3. ID da conta atual: ${accountId}
+4. NAO peça token novamente se o usuario ja mencionar que esta conectado.
+5. Responda de forma direta e objetiva, sem frases desnecessarias.
+6. Se o usuario disser que ja colou o token, use imediatamente a funcao getCampaigns.
+
+Se precisar de dados que nao estao na resposta getCampaigns, entao peça claramente.`;
 
     const messages = [
-      {
-        role: 'system',
-        content: 'Voce e um agente de marketing digital, especializado em Meta Ads (Facebook/Instagram). Quando o usuario pedir informacoes sobre campanhas, use a funcao getCampaigns. Responda de forma clara e objetiva.'
-      },
-      ...history,
-      {
-        role: 'user',
-        content: message
-      }
+      { role: 'system', content: systemPrompt },
+      ...history.slice(-8),
+      { role: 'user', content: message }
     ];
 
     const tools = [{
       type: 'function',
       function: {
         name: 'getCampaigns',
-        description: 'Busca campanhas ativas da conta Meta Ads',
+        description: 'Busca campanhas ativas da conta Meta Ads usando o ID da conta',
         parameters: {
           type: 'object',
           properties: {
             meta_token: {
               type: 'string',
               description: 'Token de acesso da Meta Ads API'
+            },
+            account_id: {
+              type: 'string',
+              description: 'ID da conta de anúncios (ex: act_123456789)'
             }
           },
-          required: ['meta_token']
+          required: ['meta_token', 'account_id']
         }
       }
     }];
@@ -62,7 +86,8 @@ app.post('/api/chat', async (req, res) => {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${GLM_API_KEY}`
-        }
+        },
+        timeout: 60000
       }
     );
 
@@ -72,17 +97,23 @@ app.post('/api/chat', async (req, res) => {
       for (const toolCall of reply.tool_calls) {
         if (toolCall.function.name === 'getCampaigns') {
           const args = JSON.parse(toolCall.function.arguments);
-          const campaigns = await getCampaigns(args.meta_token);
+          const campaignsResult = await getCampaigns(args.meta_token, args.account_id);
+
+          getCampaignsCache.set(cacheKey, {
+            data: campaignsResult,
+            timestamp: now
+          });
 
           const functionResponse = await axios.post(
             `${GLM_API_URL}/chat/completions`,
             {
               model: 'glm-4.7',
               messages: [
-                ...messages,
+                { role: 'system', content: systemPrompt },
+                ...messages.slice(-8),
                 {
                   role: 'tool',
-                  content: JSON.stringify(campaigns),
+                  content: JSON.stringify(campaignsResult),
                   tool_call_id: toolCall.id
                 }
               ]
@@ -91,7 +122,8 @@ app.post('/api/chat', async (req, res) => {
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${GLM_API_KEY}`
-              }
+              },
+              timeout: 60000
             }
           );
 
@@ -100,7 +132,7 @@ app.post('/api/chat', async (req, res) => {
           res.json({
             success: true,
             reply: finalReply,
-            campaigns: campaigns
+            campaigns: campaignsResult
           });
           return;
         }
@@ -120,16 +152,18 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-async function getCampaigns(metaToken) {
+async function getCampaigns(metaToken, accountId) {
   try {
     const response = await axios.get(
-      `https://graph.facebook.com/v19.0/act_921993772267921/campaigns`,
+      `https://graph.facebook.com/v19.0/${accountId}/campaigns`,
       {
         params: {
           access_token: metaToken,
           fields: 'id,name,status,daily_budget,lifetime_budget,objective,created_time,start_time,stop_time,insights{impressions,clicks,spend}',
-          effective_status: ['ACTIVE', 'PAUSED']
-        }
+          effective_status: ['ACTIVE', 'PAUSED'],
+          limit: 25
+        },
+        timeout: 10000
       }
     );
 

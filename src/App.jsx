@@ -1,14 +1,29 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 function App() {
   const [metaToken, setMetaToken] = useState('')
   const [connected, setConnected] = useState(false)
   const [campaigns, setCampaigns] = useState([])
-  const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Olá! Sou o agente de Meta Ads. Cole seu token de acesso no campo acima e clique em "Conectar" pra começar.' }
-  ])
+  const [accountId, setAccountId] = useState('921993772267921')
+  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const savedToken = localStorage.getItem('meta_token')
+    const savedConnected = localStorage.getItem('meta_connected')
+    const savedAccountId = localStorage.getItem('meta_account_id')
+
+    if (savedToken) {
+      setMetaToken(savedToken)
+    }
+    if (savedConnected === 'true') {
+      setConnected(true)
+    }
+    if (savedAccountId) {
+      setAccountId(savedAccountId)
+    }
+  }, [])
 
   const connectAds = () => {
     if (!metaToken.trim()) {
@@ -16,10 +31,25 @@ function App() {
       return
     }
 
+    localStorage.setItem('meta_token', metaToken)
+    localStorage.setItem('meta_connected', 'true')
+    localStorage.setItem('meta_account_id', accountId)
+
     setConnected(true)
     setMessages([
       ...messages,
-      { role: 'assistant', content: 'Token conectado! Agora posso acessar suas campanhas do Meta Ads. Pergunte sobre suas campanhas ativas!' }
+      { role: 'assistant', content: 'Token conectado! ID da conta: ' + accountId + '. Agora posso acessar suas campanhas do Meta Ads. Pergunte sobre suas campanhas ativas!' }
+    ])
+  }
+
+  const disconnectAds = () => {
+    localStorage.removeItem('meta_token')
+    localStorage.removeItem('meta_connected')
+    setConnected(false)
+    setCampaigns([])
+    setMessages([
+      ...messages,
+      { role: 'assistant', content: 'Desconectado. Cole o token novamente quando quiser usar.' }
     ])
   }
 
@@ -38,8 +68,9 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: input,
-          history: newMessages.slice(1),
-          metaToken: connected ? metaToken : null
+          history: newMessages.slice(-10),
+          metaToken: connected ? metaToken : null,
+          accountId: connected ? accountId : null
         })
       })
 
@@ -87,7 +118,7 @@ function App() {
             disabled={connected}
           />
           <button
-            onClick={connected ? () => { setConnected(false); setCampaigns([]) } : connectAds}
+            onClick={connected ? disconnectAds : connectAds}
             style={{ ...styles.button, ...(connected ? styles.buttonConnected : {}) }}
           >
             {connected ? 'Desconectar' : 'Conectar'}
@@ -96,6 +127,15 @@ function App() {
         <p style={styles.hint}>
           💡 Cole seu token e clique em "Conectar" todos os dias. O agente vai usar o token atual.
         </p>
+        <label style={styles.label}>ID da Conta de Anúncios (ex: act_123456789)</label>
+        <input
+          type="text"
+          style={styles.accountInput}
+          value={accountId}
+          onChange={(e) => setAccountId(e.target.value)}
+          placeholder="act_123456789"
+          disabled={connected}
+        />
       </div>
 
       {connected && campaigns.length > 0 && (
@@ -117,7 +157,7 @@ function App() {
                   </div>
                   <div style={styles.detailRow}>
                     <span>💰 Orçamento Diário:</span>
-                    <span style={styles.detailValue}>R$ {parseFloat(campaign.budget.daily).toFixed(2)}</span>
+                    <span style={styles.detailValue}>R$ {parseFloat(campaign.budget.daily || 0).toFixed(2)}</span>
                   </div>
                   <div style={styles.detailRow}>
                     <span>💸 Gasto:</span>
@@ -139,7 +179,7 @@ function App() {
       )}
 
       <div style={styles.chatContainer}>
-        {messages.map((msg, index) => (
+        {messages.slice(-15).map((msg, index) => (
           <div key={index} style={msg.role === 'user' ? styles.userMessage : styles.assistantMessage}>
             <div style={msg.role === 'user' ? styles.userBubble : styles.assistantBubble}>
               <div style={styles.messageRole}>{msg.role === 'user' ? 'Você' : 'Agente'}</div>
@@ -165,7 +205,7 @@ function App() {
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
           placeholder={connected ? "Pergunte sobre suas campanhas..." : "Conecte primeiro colando o token acima"}
-          rows={3}
+          rows={2}
           disabled={!connected}
         />
         <button
@@ -198,68 +238,78 @@ const styles = {
   },
   header: {
     textAlign: 'center',
-    marginBottom: '30px',
-    padding: '30px 20px',
+    marginBottom: '25px',
+    padding: '25px 20px',
     background: 'linear-gradient(135deg, #1877f2 0%, #42378f 100%)',
-    borderRadius: '15px',
+    borderRadius: '12px',
     color: 'white',
-    boxShadow: '0 10px 30px rgba(24, 119, 242, 0.3)'
+    boxShadow: '0 8px 25px rgba(24, 119, 242, 0.25)'
   },
   title: {
-    fontSize: '2rem',
-    marginBottom: '10px',
+    fontSize: '1.75rem',
+    marginBottom: '8px',
     fontWeight: 700
   },
   subtitle: {
-    fontSize: '1rem',
+    fontSize: '0.95rem',
     opacity: 0.95
   },
   tokenSection: {
     background: '#fff',
-    padding: '25px',
+    padding: '20px',
     borderRadius: '12px',
-    marginBottom: '25px',
-    boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+    marginBottom: '20px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
     border: '2px solid #1877f2'
   },
   label: {
     display: 'block',
-    fontSize: '0.9rem',
+    fontSize: '0.85rem',
     fontWeight: 600,
-    marginBottom: '10px',
+    marginBottom: '8px',
     color: '#333'
   },
   tokenInputContainer: {
     display: 'flex',
     gap: '10px',
-    alignItems: 'center'
+    alignItems: 'center',
+    marginBottom: '15px'
   },
   tokenInput: {
     flex: 1,
-    padding: '12px 15px',
+    padding: '10px 12px',
     border: '2px solid #e0e0e0',
-    borderRadius: '8px',
-    fontSize: '0.95rem',
+    borderRadius: '6px',
+    fontSize: '0.9rem',
     fontFamily: 'Inter, sans-serif',
     outline: 'none',
-    transition: 'border-color 0.3s'
+    transition: 'border-color 0.2s'
+  },
+  accountInput: {
+    width: '100%',
+    padding: '10px 12px',
+    border: '2px solid #e0e0e0',
+    borderRadius: '6px',
+    fontSize: '0.9rem',
+    fontFamily: 'Inter, sans-serif',
+    outline: 'none',
+    marginTop: '5px'
   },
   hint: {
-    fontSize: '0.85rem',
+    fontSize: '0.8rem',
     color: '#666',
-    marginTop: '10px',
-    fontStyle: 'italic'
+    marginBottom: '12px'
   },
   button: {
-    padding: '12px 25px',
+    padding: '10px 20px',
     background: 'linear-gradient(135deg, #1877f2 0%, #42378f 100%)',
     color: 'white',
     border: 'none',
-    borderRadius: '8px',
-    fontSize: '1rem',
+    borderRadius: '6px',
+    fontSize: '0.95rem',
     fontWeight: 600,
     cursor: 'pointer',
-    transition: 'transform 0.2s, box-shadow 0.2s',
+    transition: 'transform 0.15s',
     whiteSpace: 'nowrap'
   },
   buttonConnected: {
@@ -271,55 +321,56 @@ const styles = {
   },
   campaignsSection: {
     background: '#fff',
-    padding: '25px',
+    padding: '20px',
     borderRadius: '12px',
-    marginBottom: '25px',
-    boxShadow: '0 2px 10px rgba(0,0,0,0.05)'
+    marginBottom: '20px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
   },
   campaignsTitle: {
-    fontSize: '1.3rem',
+    fontSize: '1.15rem',
     fontWeight: 700,
-    marginBottom: '20px',
+    marginBottom: '15px',
     color: '#333'
   },
   campaignsList: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-    gap: '15px'
+    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+    gap: '12px'
   },
   campaignCard: {
     border: '1px solid #e0e0e0',
-    borderRadius: '10px',
-    overflow: 'hidden'
+    borderRadius: '8px',
+    overflow: 'hidden',
+    transition: 'transform 0.2s'
   },
   campaignHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '15px',
+    padding: '12px',
     background: '#f8f9fa',
     borderBottom: '1px solid #e0e0e0'
   },
   campaignName: {
     fontWeight: 600,
     color: '#333',
-    fontSize: '1rem'
+    fontSize: '0.95rem'
   },
   status: {
-    padding: '5px 12px',
-    borderRadius: '20px',
+    padding: '4px 10px',
+    borderRadius: '15px',
     color: 'white',
-    fontSize: '0.8rem',
+    fontSize: '0.75rem',
     fontWeight: 600
   },
   campaignDetails: {
-    padding: '15px'
+    padding: '12px'
   },
   detailRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    padding: '8px 0',
-    fontSize: '0.9rem',
+    padding: '6px 0',
+    fontSize: '0.85rem',
     color: '#666',
     borderBottom: '1px solid #f0f0f0'
   },
@@ -328,14 +379,14 @@ const styles = {
     color: '#1877f2'
   },
   chatContainer: {
-    minHeight: '400px',
-    marginBottom: '20px',
-    padding: '20px',
+    minHeight: '350px',
+    marginBottom: '15px',
+    padding: '15px',
     background: '#f8f9fa',
     borderRadius: '10px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '15px'
+    gap: '12px'
   },
   userMessage: {
     display: 'flex',
@@ -348,49 +399,51 @@ const styles = {
   userBubble: {
     background: '#1877f2',
     color: 'white',
-    padding: '15px 20px',
-    borderRadius: '15px 15px 0 15px',
-    maxWidth: '70%',
+    padding: '12px 16px',
+    borderRadius: '12px 12px 0 12px',
+    maxWidth: '75%',
     wordWrap: 'break-word'
   },
   assistantBubble: {
     background: 'white',
     color: '#333',
-    padding: '15px 20px',
-    borderRadius: '15px 15px 15px 0',
-    maxWidth: '70%',
+    padding: '12px 16px',
+    borderRadius: '12px 12px 12px 0',
+    maxWidth: '75%',
     wordWrap: 'break-word',
     boxShadow: '0 2px 5px rgba(0,0,0,0.05)'
   },
   messageRole: {
-    fontSize: '0.75rem',
-    marginBottom: '5px',
+    fontSize: '0.7rem',
+    marginBottom: '4px',
     opacity: 0.7,
     fontWeight: 600
   },
   messageText: {
-    lineHeight: '1.6',
-    whiteSpace: 'pre-wrap'
+    lineHeight: '1.5',
+    whiteSpace: 'pre-wrap',
+    fontSize: '0.9rem'
   },
   loading: {
-    color: '#999',
-    fontStyle: 'italic'
+    color: '#666',
+    fontStyle: 'italic',
+    fontSize: '0.85rem'
   },
   inputContainer: {
     display: 'flex',
-    gap: '10px',
+    gap: '8px',
     alignItems: 'flex-end'
   },
   textarea: {
     flex: 1,
-    padding: '15px',
+    padding: '12px',
     border: '2px solid #e0e0e0',
-    borderRadius: '10px',
-    fontSize: '1rem',
+    borderRadius: '8px',
+    fontSize: '0.95rem',
     fontFamily: 'Inter, sans-serif',
     resize: 'vertical',
     outline: 'none',
-    transition: 'border-color 0.3s'
+    transition: 'border-color 0.2s'
   }
 }
 
