@@ -14,13 +14,15 @@ const GLM_API_KEY = process.env.GLM_API_KEY || '3426673eebda4070a78bf8bbbf53509d
 const GLM_API_URL = process.env.GLM_API_URL || 'https://api.z.ai/api/coding/paas/v4';
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'dist')));
 
 const getCampaignsCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 10 * 60 * 1000;
 
 app.post('/api/chat', async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { message, history = [], metaToken, accountId = '921993772267921' } = req.body;
 
@@ -35,27 +37,22 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
+    const tokenPreview = metaToken ? `${metaToken.substring(0, 20)}... (${metaToken.length} chars)` : 'none';
+
     const systemPrompt = `Voce e um assistente de Meta Ads. O usuario ja configurou o token e o ID da conta (${accountId}).
 
 INSTRUÇÕES CRUCIAIS:
-1. Se o usuario perguntar sobre campanhas, use IMEDIATAMENTE a funcao getCampaigns com o token que ja foi fornecido.
-2. NUNCA peça o token novamente. O usuario ja deixou claro que ja esta conectado.
+1. Se o usuario perguntar sobre campanhas, use IMEDIATAMENTE a funcao getCampaigns com o token ja configurado.
+2. NUNCA peça o token novamente.
 3. Se o usuario dizer "ja colou", "ja conectei", ou similar, USE A FUNCAO getCampaigns direto.
-4. NAO pergunte "pode me passar o token" ou coisas do tipo. O usuario ja configurou.
-5. Se precisar de dados que nao estao na resposta getCampaigns, entao SIM pode perguntar.
-6. Responda de forma direta e objetiva, sem frases desnecessarias.
+4. NAO pergunte "pode me passar o token".
+5. Responda de forma direta e objetiva.
 
-Exemplos:
-- Usuario: "Quais sao as campanhas?" -> Use getCampaigns
-- Usuario: "Quais sao as campanhas da Andreza?" -> Use getCampaigns
-- Usuario: "Ja colou o token" -> Use getCampaigns
-- Usuario: "Estou conectado" -> Use getCampaigns
-
-Caso o usuario PEÇA para mudar o token ou algo diferente, ai sim pode perguntar.`;
+Token configurado: ${tokenPreview}`;
 
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.slice(-6),
+      ...history.slice(-4),
       { role: 'user', content: message }
     ];
 
@@ -63,17 +60,17 @@ Caso o usuario PEÇA para mudar o token ou algo diferente, ai sim pode perguntar
       type: 'function',
       function: {
         name: 'getCampaigns',
-        description: 'Busca campanhas ativas da conta Meta Ads usando o token ja configurado',
+        description: 'Busca campanhas ativas da conta Meta Ads',
         parameters: {
           type: 'object',
           properties: {
             meta_token: {
               type: 'string',
-              description: 'Token de acesso da Meta Ads API (ja fornecido pelo usuario)'
+              description: 'Token de acesso da Meta Ads API'
             },
             account_id: {
               type: 'string',
-              description: 'ID da conta de anúncios (ex: act_123456789)'
+              description: 'ID da conta de anúncios'
             }
           },
           required: ['meta_token', 'account_id']
@@ -81,20 +78,23 @@ Caso o usuario PEÇA para mudar o token ou algo diferente, ai sim pode perguntar
       }
     }];
 
+    console.log(`[${new Date().toISOString()}] Requisição: ${message.substring(0, 50)}...`);
+
     const response = await axios.post(
       `${GLM_API_URL}/chat/completions`,
       {
         model: 'glm-4.7',
         messages: messages,
         tools: tools,
-        temperature: 0.3
+        temperature: 0.3,
+        max_tokens: 2000
       },
       {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${GLM_API_KEY}`
         },
-        timeout: 50000
+        timeout: 120000
       }
     );
 
@@ -117,25 +117,28 @@ Caso o usuario PEÇA para mudar o token ou algo diferente, ai sim pode perguntar
               model: 'glm-4.7',
               messages: [
                 { role: 'system', content: systemPrompt },
-                ...messages.slice(-6),
+                ...messages.slice(-4),
                 {
                   role: 'tool',
                   content: JSON.stringify(campaignsResult),
                   tool_call_id: toolCall.id
                 }
               ],
-              temperature: 0.3
+              temperature: 0.3,
+              max_tokens: 1000
             },
             {
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${GLM_API_KEY}`
               },
-              timeout: 50000
+              timeout: 60000
             }
           );
 
           const finalReply = functionResponse.data.choices[0].message.content;
+          const elapsed = Date.now() - startTime;
+          console.log(`[${new Date().toISOString()}] Resposta em ${elapsed}ms`);
 
           res.json({
             success: true,
@@ -152,10 +155,12 @@ Caso o usuario PEÇA para mudar o token ou algo diferente, ai sim pode perguntar
       reply: reply.content
     });
   } catch (error) {
-    console.error('Erro ao chamar GLM-4.7:', error.response?.data || error.message);
+    const elapsed = Date.now() - startTime;
+    console.error(`[${new Date().toISOString()}] Erro (${elapsed}ms):`, error.response?.data || error.message);
+
     res.status(500).json({
       success: false,
-      error: 'Erro ao processar sua mensagem. Tente novamente.'
+      error: error.response?.data?.error?.message || error.message || 'Erro ao processar sua mensagem. Tente novamente.'
     });
   }
 });
@@ -171,7 +176,7 @@ async function getCampaigns(metaToken, accountId) {
           effective_status: ['ACTIVE', 'PAUSED'],
           limit: 25
         },
-        timeout: 10000
+        timeout: 15000
       }
     );
 
