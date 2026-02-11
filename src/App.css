@@ -1,21 +1,9 @@
-body {
+/* Meta Ads Agente - Global Reset */
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
-}
-
-#root {
-  min-height: 100vh;
-}
-
-::-webkit-scrollbar {
-  width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #1877f2;
-  border-radius: 4px;
+  height: 100%;
+  background: #0f1115;
 }
